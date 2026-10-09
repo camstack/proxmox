@@ -75,7 +75,7 @@ if [ -n "$STORAGE_ID" ]; then
     echo "(Datacenter → Storage → Add → Directory), or pass an absolute host path."
     exit 1
   fi
-  # Keep PVE's own backup/iso trees alone — same idea as Scrypted's mounts/.
+  # Keep PVE's own backup/iso trees alone — use a mounts/ subtree.
   ROLE_SUFFIX=$(pct config "$VMID" 2>/dev/null | awk -F': ' '/^hostname:/{print $2; exit}' || echo "$VMID")
   HOST_DIR="$BASE/mounts/camstack-${ROLE_SUFFIX}"
 fi
@@ -128,7 +128,7 @@ mkdir -p "$HOST_DIR"
 mkdir -p "$HOST_DIR/.camstack-media"
 chown -R "$HOST_UID:$HOST_GID" "$HOST_DIR"
 chmod 0750 "$HOST_DIR"
-# Writable by the mapped user only — prefer this over Scrypted-style 0777.
+# Writable by the mapped user only (not world-writable).
 
 # If the CT already has files under CT_MP on the rootfs, the bind will hide them.
 EXISTING=$(pct exec "$VMID" -- bash -c "if [ -d '$CT_MP' ]; then find '$CT_MP' -mindepth 1 -maxdepth 2 2>/dev/null | head -5; fi" || true)
