@@ -1,0 +1,32 @@
+# CamStack agent on Proxmox (AMD image). Installed by install-camstack-proxmox.sh
+# into /opt/camstack/docker-compose.yml inside the LXC.
+services:
+  camstack:
+    image: ghcr.io/camstack/camstack:amd-latest
+    container_name: camstack-agent
+    restart: unless-stopped
+    network_mode: host
+    pids_limit: 8192
+    devices:
+      - /dev/dri:/dev/dri
+      # - /dev/accel:/dev/accel
+    volumes:
+      - /opt/camstack/data:/data
+      - /opt/camstack/config:/config
+      - /opt/camstack/backups:/backups
+      - /opt/camstack/recordings:/recordings
+    environment:
+      - CAMSTACK_ROLE=agent
+      - CAMSTACK_MEDIA_ROOT=/recordings
+      - CAMSTACK_MOLECULER_USE_HOSTNAME=false
+      - CAMSTACK_LOG_LEVEL=info
+      # Set by the install script when provided:
+      - CAMSTACK_HUB_ADDRESS=${CAMSTACK_HUB_ADDRESS:-}
+      - CAMSTACK_HUB_URL=${CAMSTACK_HUB_URL:-}
+      - CAMSTACK_NODE_ID=${CAMSTACK_NODE_ID:-}
+      - CAMSTACK_AGENT_NAME=${CAMSTACK_AGENT_NAME:-}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,28 @@
+# CamStack hub on Proxmox (AMD image). Installed by install-camstack-proxmox.sh
+# into /opt/camstack/docker-compose.yml inside the LXC.
+services:
+  camstack:
+    image: ghcr.io/camstack/camstack:amd-latest
+    container_name: camstack
+    restart: unless-stopped
+    network_mode: host
+    pids_limit: 8192
+    devices:
+      - /dev/dri:/dev/dri
+      # Uncomment when /dev/accel exists in the CT (NPU / accel nodes):
+      # - /dev/accel:/dev/accel
+    volumes:
+      - /opt/camstack/data:/data
+      - /opt/camstack/config:/config
+      - /opt/camstack/backups:/backups
+      - /opt/camstack/recordings:/recordings
+    environment:
+      - CAMSTACK_ROLE=hub
+      - CAMSTACK_MEDIA_ROOT=/recordings
+      - CAMSTACK_MOLECULER_USE_HOSTNAME=false
+      - CAMSTACK_LOG_LEVEL=info
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
