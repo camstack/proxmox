@@ -38,6 +38,10 @@ SWAP_MB="${SWAP_MB:-2048}"
 DISK_GB="${DISK_GB:-64}"
 BRIDGE="${BRIDGE:-vmbr0}"
 IMAGE_TAG="${IMAGE_TAG:-ghcr.io/camstack/camstack:amd-latest}"
+# Optional: host directory for recordings, bound at /opt/camstack/recordings
+# in the CT (same path Docker maps to CAMSTACK_MEDIA_ROOT). Prefer attaching
+# a real HD later with setup-camstack-recordings-volume.sh if unknown now.
+RECORDINGS_HOST_PATH="${RECORDINGS_HOST_PATH:-}"
 FORCE="${FORCE:-}"
 for arg in "$@"; do
   case "$arg" in
@@ -94,18 +98,27 @@ if ! pveam list local 2>/dev/null | grep -q "$TEMPLATE"; then
   pveam download local "$TEMPLATE"
 fi
 
-echo "Creating CT $VMID on $STORAGE…"
-pct create "$VMID" "local:vztmpl/$TEMPLATE" \
-  --hostname "$HOSTNAME" \
-  --unprivileged 1 \
-  --features nesting=1,keyctl=1 \
-  --cores "$CORES" \
-  --memory "$MEMORY_MB" \
-  --swap "$SWAP_MB" \
-  --rootfs "${STORAGE}:${DISK_GB}" \
-  --net0 "name=eth0,bridge=${BRIDGE},ip=dhcp" \
-  --onboot 1 \
+CREATE_ARGS=(
+  --hostname "$HOSTNAME"
+  --unprivileged 1
+  --features nesting=1,keyctl=1
+  --cores "$CORES"
+  --memory "$MEMORY_MB"
+  --swap "$SWAP_MB"
+  --rootfs "${STORAGE}:${DISK_GB}"
+  --net0 "name=eth0,bridge=${BRIDGE},ip=dhcp"
+  --onboot 1
   --ostype ubuntu
+)
+if [ -n "$RECORDINGS_HOST_PATH" ]; then
+  mkdir -p "$RECORDINGS_HOST_PATH"
+  # Ownership fixed after create (idmap known); mount path matches compose.
+  CREATE_ARGS+=(--mp0 "${RECORDINGS_HOST_PATH},mp=/opt/camstack/recordings")
+  echo "Recordings host path: $RECORDINGS_HOST_PATH → /opt/camstack/recordings"
+fi
+
+echo "Creating CT $VMID on $STORAGE…"
+pct create "$VMID" "local:vztmpl/$TEMPLATE" "${CREATE_ARGS[@]}"
 
 pct start "$VMID"
 # Wait for network
@@ -165,6 +178,23 @@ systemctl enable --now docker
 mkdir -p /opt/camstack/{data,config,backups,recordings}
 INNER
 
+# Align host-side ownership for an mp0 recordings bind (uid 1001 → 100000+1001).
+if [ -n "$RECORDINGS_HOST_PATH" ]; then
+  HOST_UID=$((100000 + 1001))
+  if [ -f "/etc/pve/lxc/${VMID}.conf" ]; then
+    line=$(grep -E '^lxc\.idmap:\s*u\s+' "/etc/pve/lxc/${VMID}.conf" | head -1 || true)
+    if [ -n "$line" ]; then
+      map_from=$(echo "$line" | awk '{print $3}')
+      map_host=$(echo "$line" | awk '{print $4}')
+      HOST_UID=$((map_host + 1001 - map_from))
+    fi
+  fi
+  mkdir -p "$RECORDINGS_HOST_PATH/.camstack-media"
+  chown -R "$HOST_UID:$HOST_UID" "$RECORDINGS_HOST_PATH"
+  chmod 0750 "$RECORDINGS_HOST_PATH"
+  echo "Recordings host dir owned by uid $HOST_UID (CT camstack)"
+fi
+
 # Compose file into the CT
 COMPOSE_TMP=$(mktemp)
 sed "s|ghcr.io/camstack/camstack:amd-latest|${IMAGE_TAG}|g" "$COMPOSE_SRC" > "$COMPOSE_TMP"
@@ -197,3 +227,11 @@ else
 fi
 echo "Enter CT: pct enter $VMID"
 echo "Logs:     pct exec $VMID -- docker compose -f /opt/camstack/docker-compose.yml logs -f"
+if [ -z "$RECORDINGS_HOST_PATH" ]; then
+  echo ""
+  echo "Recordings are on the CT rootfs (/opt/camstack/recordings) — fine for smoke tests."
+  echo "When you attach a real HD, bind it with (on this PVE host):"
+  echo "  curl -fsSL https://raw.githubusercontent.com/camstack/proxmox/main/setup-camstack-recordings-volume.sh \\"
+  echo "    | VMID=$VMID bash -s -- /mnt/<your-hd>/camstack-$ROLE"
+  echo "  # or:  … bash -s -- --storage <pve-directory-storage-id>"
+fi
