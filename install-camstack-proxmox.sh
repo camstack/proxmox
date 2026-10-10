@@ -151,6 +151,14 @@ for card in /dev/dri/card*; do
 done
 pass_dev /dev/accel/accel0 0660
 
+# XDNA userspace (xrt-smi / VitisAI) mmaps large locked regions; the LXC
+# default memlock (8 MiB) makes examine fail with EAGAIN. Unlimited is the
+# documented Ryzen AI Linux requirement.
+if ! grep -q '^lxc.prlimit.memlock:' "/etc/pve/lxc/${VMID}.conf"; then
+  echo 'lxc.prlimit.memlock: unlimited' >> "/etc/pve/lxc/${VMID}.conf"
+  echo "  lxc.prlimit.memlock → unlimited"
+fi
+
 pct reboot "$VMID"
 sleep 5
 for i in $(seq 1 30); do
