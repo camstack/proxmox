@@ -9,7 +9,7 @@ services:
     pids_limit: 8192
     devices:
       - /dev/dri:/dev/dri
-      # - /dev/accel:/dev/accel
+      - /dev/accel:/dev/accel
     volumes:
       - /opt/camstack/data:/data
       - /opt/camstack/config:/config
