@@ -10,6 +10,13 @@ services:
     devices:
       - /dev/dri:/dev/dri
       - /dev/accel:/dev/accel
+    # Host GIDs so camstack can open renderD* (VAAPI/WebGPU) and accel0.
+    # video=44 and render=993 are the usual Ubuntu/PVE values; confirm with
+    # `stat -c %g /dev/dri/renderD128` / `stat -c %g /dev/accel/accel0`.
+    group_add:
+      - "44"
+      - "993"
+      - "1001"
     volumes:
       - /opt/camstack/data:/data
       - /opt/camstack/config:/config
