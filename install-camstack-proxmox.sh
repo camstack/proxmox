@@ -176,6 +176,13 @@ apt-get update -qq
 apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
 systemctl enable --now docker
 mkdir -p /opt/camstack/{data,config,backups,recordings}
+# The image entrypoint does `mkdir -p /data/addons/@camstack` as root and only
+# non-recursively chowns `/data/addons`. That left `@camstack` root-owned so
+# the camstack user could not seed AGENT_PACKAGES (empty pipeline on a fresh
+# AMD agent, 2026-10-10). Pre-create the scope as uid 1001 (image `camstack`)
+# so first boot can write even before the image entrypoint fix ships.
+mkdir -p /opt/camstack/data/addons/@camstack
+chown -R 1001:1001 /opt/camstack/data /opt/camstack/config /opt/camstack/backups
 INNER
 
 # Align host-side ownership for an mp0 recordings bind (uid 1001 → 100000+1001).
