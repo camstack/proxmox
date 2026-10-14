@@ -11,7 +11,25 @@ Unraid templates live separately in
 
 `CAMSTACK_ROLE=hub|agent` selects the role. Hub and agent on the **same**
 Proxmox host need **two containers** (host networking would collide on
-4443/4444/6000).
+4443/4444/6443).
+
+## Network and ports
+
+Both compose files use `network_mode: host` inside the CT, and the CT sits on
+the bridge you choose (`BRIDGE`), so it has its own LAN address.
+
+| Port | Role | Purpose |
+| --- | --- | --- |
+| `4443/tcp` | hub | Admin UI and API over HTTPS |
+| `4444/tcp` | agent | Status dashboard |
+| `6443/tcp` | hub and agent | Mutual-TLS cluster mesh (hub accepts agents, agent accepts the hub) |
+| `8554/tcp` | hub and agent | RTSP restream |
+| `5353/udp` | hub | mDNS announcement of the hub (multicast) |
+
+The clear mesh port `6000` and the UDP discovery port `4445` are retired; close
+them in any firewall. Do not forward `6443` to the internet. mDNS needs the CT
+on a bridge that shares a LAN with your clients; without it the hub is simply
+not announced and you reach it by address.
 
 ## Install (on the PVE host)
 

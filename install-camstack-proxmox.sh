@@ -237,7 +237,7 @@ if [ "$ROLE" = "hub" ]; then
 else
   echo "Agent status: http://${CT_IP:-<ct-ip>}:4444"
   if [ -z "${CAMSTACK_HUB_ADDRESS:-}" ] && [ -z "${CAMSTACK_HUB_URL:-}" ]; then
-    echo "No CAMSTACK_HUB_ADDRESS set — configure the hub from the agent dashboard."
+    echo "No CAMSTACK_HUB_ADDRESS set — open the agent dashboard, pick the hub found over mDNS and paste a join token from that hub."
   fi
 fi
 echo "Enter CT: pct enter $VMID"
