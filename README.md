@@ -43,7 +43,7 @@ curl -fsSL https://raw.githubusercontent.com/camstack/proxmox/main/install-camst
   | ROLE=agent CAMSTACK_HUB_ADDRESS=192.168.1.9 CAMSTACK_NODE_ID=my-amd-box bash
 ```
 
-An agent is not given a secret: pair it from the hub (System → Cluster → Agents found on the network, or Add by address with the CT IP on port 4444) and confirm the same six-digit code on the hub and on the agent page (`http://<ct-ip>:4444`).
+An agent is not given a secret: pair it from the hub (Cluster → Nodes → Agents found on the network, or Add by address with the CT IP on port 4444) and confirm the same six-digit code on the hub and on the agent page (`http://<ct-ip>:4444`).
 
 Or clone this repo and run `./install-camstack-proxmox.sh` (loads `compose/`
 from disk).

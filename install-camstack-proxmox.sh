@@ -237,7 +237,7 @@ if [ "$ROLE" = "hub" ]; then
 else
   echo "Agent status: http://${CT_IP:-<ct-ip>}:4444"
   echo "Pair this agent from the hub (there is no cluster secret to enter):"
-  echo "  - hub admin UI: System -> Cluster -> Agents found on the network -> Pair (or Add by address: ${CT_IP:-<ct-ip>}, port 4444)"
+  echo "  - hub admin UI: Cluster -> Nodes -> Agents found on the network -> Pair (or Add by address: ${CT_IP:-<ct-ip>}, port 4444)"
   echo "  - confirm the same six-digit code on the hub and on the agent page http://${CT_IP:-<ct-ip>}:4444"
 fi
 echo "Enter CT: pct enter $VMID"
