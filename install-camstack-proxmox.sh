@@ -236,9 +236,9 @@ if [ "$ROLE" = "hub" ]; then
   echo "Admin UI: https://${CT_IP:-<ct-ip>}:4443  (first login admin / changeme)"
 else
   echo "Agent status: http://${CT_IP:-<ct-ip>}:4444"
-  if [ -z "${CAMSTACK_HUB_ADDRESS:-}" ] && [ -z "${CAMSTACK_HUB_URL:-}" ]; then
-    echo "No CAMSTACK_HUB_ADDRESS set — open the agent dashboard, pick the hub found over mDNS and paste a join token from that hub."
-  fi
+  echo "Pair this agent from the hub (there is no cluster secret to enter):"
+  echo "  - hub admin UI: System -> Cluster -> Agents found on the network -> Pair (or Add by address: ${CT_IP:-<ct-ip>}, port 4444)"
+  echo "  - confirm the same six-digit code on the hub and on the agent page http://${CT_IP:-<ct-ip>}:4444"
 fi
 echo "Enter CT: pct enter $VMID"
 echo "Logs:     pct exec $VMID -- docker compose -f /opt/camstack/docker-compose.yml logs -f"
