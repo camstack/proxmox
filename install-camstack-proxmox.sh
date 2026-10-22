@@ -7,6 +7,14 @@
 #     CAMSTACK_NODE_ID=amd-proxmox bash install-camstack-proxmox.sh
 #
 # Hub and agent on the same machine = two CTs (host networking collides otherwise).
+#
+# Accelerators present on the host are passed into the CT and enabled in the
+# generated compose: /dev/dri, /dev/accel, /dev/apex_* (Coral PCIe/M.2) and a
+# Coral USB. PASS_ACCEL=none skips all of it; PASS_KFD=1 adds /dev/kfd (ROCm).
+#
+# Opt-in, separate host step (never run by an install):
+#   bash install-camstack-proxmox.sh --install-coral-pcie-driver
+#   (curl … | bash -s -- --install-coral-pcie-driver)
 set -euo pipefail
 
 PCT=$(command -v pct || true)
@@ -43,11 +51,68 @@ IMAGE_TAG="${IMAGE_TAG:-ghcr.io/camstack/camstack:amd-latest}"
 # a real HD later with setup-camstack-recordings-volume.sh if unknown now.
 RECORDINGS_HOST_PATH="${RECORDINGS_HOST_PATH:-}"
 FORCE="${FORCE:-}"
+# auto = pass every accelerator node the host has; none = pass nothing.
+PASS_ACCEL="${PASS_ACCEL:-auto}"
+case "$PASS_ACCEL" in
+  auto|none) ;;
+  *) echo "PASS_ACCEL must be auto or none (got: $PASS_ACCEL)"; exit 1 ;;
+esac
+# /dev/kfd (AMD ROCm compute) only on request: the image has no ROCm runtime.
+PASS_KFD="${PASS_KFD:-0}"
+INSTALL_CORAL_PCIE_DRIVER=""
 for arg in "$@"; do
   case "$arg" in
     --force) FORCE=1 ;;
+    --install-coral-pcie-driver) INSTALL_CORAL_PCIE_DRIVER=1 ;;
   esac
 done
+
+# Opt-in host step: build the Coral PCIe/M.2 driver (gasket + apex) through
+# DKMS from the maintained fork. Never called by an install; it never reboots.
+install_coral_pcie_driver() {
+  local kver suite src=/usr/src/gasket-1.0
+  kver=$(uname -r)
+  # shellcheck disable=SC1091
+  suite=$(. /etc/os-release && echo "${VERSION_CODENAME:-}")
+  if [ -z "$suite" ]; then
+    echo "Cannot read VERSION_CODENAME from /etc/os-release."
+    exit 1
+  fi
+  echo "=== Coral PCIe/M.2 host driver (gasket-dkms, kernel $kver, $suite) ==="
+  apt-get update -qq
+  if ! apt-cache policy "proxmox-headers-$kver" | grep -q 'Candidate: [0-9]'; then
+    echo "proxmox-headers-$kver not available; adding the pve-no-subscription repository ($suite)."
+    echo "deb http://download.proxmox.com/debian/pve $suite pve-no-subscription" \
+      > /etc/apt/sources.list.d/pve-no-subscription.list
+    apt-get update -qq
+  fi
+  apt-get install -y --no-install-recommends "proxmox-headers-$kver" dkms git build-essential
+  if [ ! -d "$src/.git" ]; then
+    git clone https://github.com/feranick/gasket-driver.git "$src"
+  fi
+  cp "$src/debian/gasket-dkms.dkms" "$src/dkms.conf"
+  sed -i 's/^PACKAGE_VERSION=.*/PACKAGE_VERSION=1.0/' "$src/dkms.conf"
+  dkms status -m gasket -v 1.0 | grep -q . || dkms add -m gasket -v 1.0
+  dkms build -m gasket -v 1.0 -k "$kver"
+  dkms install -m gasket -v 1.0 -k "$kver" --force
+  groupadd -f apex
+  echo 'SUBSYSTEM=="apex", MODE="0660", GROUP="apex"' > /etc/udev/rules.d/65-apex.rules
+  echo ""
+  if command -v mokutil >/dev/null 2>&1 && mokutil --sb-state 2>/dev/null | grep -q 'SecureBoot enabled'; then
+    echo "Secure Boot is ON: enrol the DKMS key before rebooting, or the module will not load:"
+    echo "  mokutil --import /var/lib/dkms/mok.pub   # set a one-time password, accept it in the MOK screen"
+  fi
+  echo "Driver installed. REBOOT the host to load it on a clean boot (not done for you), then:"
+  echo "  ls -l /dev/apex_*    # expect crw-rw---- root apex"
+  echo "A new install passes /dev/apex_* into the CT on its own. For an existing CT:"
+  echo "  pct set <ct> -devN /dev/apex_0,gid=993,mode=0660   # one per unit, then pct reboot <ct>"
+  echo "  and uncomment the matching /dev/apex_N line in /opt/camstack/docker-compose.yml."
+}
+
+if [ -n "$INSTALL_CORAL_PCIE_DRIVER" ]; then
+  install_coral_pcie_driver
+  exit 0
+fi
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 COMPOSE_SRC="$SCRIPT_DIR/compose/$COMPOSE_NAME"
@@ -129,27 +194,102 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
-echo "Passing through DRM / accel devices…"
+# Compose markers (#@name) to uncomment for the devices actually passed.
+ENABLED_MARKERS=()
+# /dev/apex_N past the two units the compose template lists.
+APEX_EXTRA=()
+enable_marker() {
+  local m
+  for m in ${ENABLED_MARKERS[@]+"${ENABLED_MARKERS[@]}"}; do [ "$m" = "$1" ] && return 0; done
+  ENABLED_MARKERS+=("$1")
+}
+
+# A Coral USB enumerates as 1a6e:089a before its firmware loads, 18d1:9302 after.
+coral_usb_present() {
+  local d ids
+  for d in /sys/bus/usb/devices/*; do
+    [ -f "$d/idVendor" ] && [ -f "$d/idProduct" ] || continue
+    ids="$(cat "$d/idVendor"):$(cat "$d/idProduct")"
+    case "$ids" in
+      1a6e:089a|18d1:9302) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# gid = the group INSIDE the CT that owns the node; the image entrypoint then
+# chowns it to `camstack` in the Docker container.
 pass_dev() {
-  local path=$1 mode=$2
+  local path=$1 mode=$2 marker=$3
   [ -e "$path" ] || return 0
   local gid
-  if [[ "$path" == *render* ]] || [[ "$path" == *accel* ]]; then
-    gid=$(pct exec "$VMID" -- getent group render | cut -d: -f3 || echo 993)
+  if [[ "$path" == /dev/dri/card* ]]; then
+    gid=$(pct exec "$VMID" -- getent group video | cut -d: -f3 || true)
+    gid=${gid:-44}
   else
-    gid=$(pct exec "$VMID" -- getent group video | cut -d: -f3 || echo 44)
+    gid=$(pct exec "$VMID" -- getent group render | cut -d: -f3 || true)
+    gid=${gid:-993}
+  fi
+  if pct config "$VMID" | grep -qE "^dev[0-9]+: ${path}(,|$)"; then
+    enable_marker "$marker"
+    return 0
   fi
   # Find next free devN
   local n=0
   while pct config "$VMID" | grep -q "^dev${n}:"; do n=$((n + 1)); done
   pct set "$VMID" -dev"${n}" "${path},gid=${gid},mode=${mode}"
   echo "  dev${n} → $path (gid=$gid)"
+  enable_marker "$marker"
 }
-pass_dev /dev/dri/renderD128 0660
-for card in /dev/dri/card*; do
-  pass_dev "$card" 0660
-done
-pass_dev /dev/accel/accel0 0660
+
+if [ "$PASS_ACCEL" = "auto" ]; then
+  echo "Passing through accelerator devices found on the host…"
+  for node in /dev/dri/renderD* /dev/dri/card*; do
+    pass_dev "$node" 0660 dri
+  done
+  for node in /dev/accel/accel*; do
+    pass_dev "$node" 0660 accel
+  done
+  if [ "$PASS_KFD" = "1" ]; then
+    pass_dev /dev/kfd 0660 kfd
+  fi
+  for node in /dev/apex_*; do
+    [ -e "$node" ] || continue
+    unit=${node#/dev/apex_}
+    pass_dev "$node" 0660 "apex_${unit}"
+    case "$unit" in
+      0|1) ;;
+      *) APEX_EXTRA+=("$node") ;;
+    esac
+  done
+  if lspci -n 2>/dev/null | grep -q ' 1ac1:089a' && ! compgen -G '/dev/apex_*' >/dev/null; then
+    echo "  Coral PCIe/M.2 card found but no /dev/apex_* node: the host driver is missing."
+    echo "  Install it on this host (opt-in), then reboot and re-run the install:"
+    echo "    curl -fsSL https://raw.githubusercontent.com/camstack/proxmox/main/install-camstack-proxmox.sh \\"
+    echo "      | bash -s -- --install-coral-pcie-driver"
+  fi
+  if coral_usb_present; then
+    # The USB bus, not one node: the stick re-enumerates after firmware load.
+    conf="/etc/pve/lxc/${VMID}.conf"
+    grep -q '^lxc.cgroup2.devices.allow: c 189:\* rwm' "$conf" \
+      || echo 'lxc.cgroup2.devices.allow: c 189:* rwm' >> "$conf"
+    grep -q '^lxc.mount.entry: /dev/bus/usb ' "$conf" \
+      || echo 'lxc.mount.entry: /dev/bus/usb dev/bus/usb none bind,optional,create=dir' >> "$conf"
+    echo "  Coral USB → /dev/bus/usb (cgroup c 189:* rwm + bind mount)"
+    enable_marker usb
+    if [ ! -f /etc/udev/rules.d/65-coral-usb.rules ]; then
+      echo "  In an unprivileged CT the USB nodes stay host-root owned; make the Coral"
+      echo "  writable on the HOST once, in /etc/udev/rules.d/65-coral-usb.rules:"
+      echo '    SUBSYSTEMS=="usb", ATTRS{idVendor}=="1a6e", ATTRS{idProduct}=="089a", MODE="0666"'
+      echo '    SUBSYSTEMS=="usb", ATTRS{idVendor}=="18d1", ATTRS{idProduct}=="9302", MODE="0666"'
+      echo "  then: udevadm control --reload-rules, and replug the Coral."
+    fi
+  fi
+  if [ -e /dev/nvidia0 ]; then
+    echo "  NVIDIA GPU found: not passed automatically (needs the driver in the CT and the"
+    echo "  NVIDIA Container Toolkit); see 'gpus: all' in /opt/camstack/docker-compose.yml."
+  fi
+fi
 
 # XDNA userspace (xrt-smi / VitisAI) mmaps large locked regions; the LXC
 # default memlock (8 MiB) makes examine fail with EAGAIN. Unlimited is the
@@ -213,6 +353,18 @@ fi
 # Compose file into the CT
 COMPOSE_TMP=$(mktemp)
 sed "s|ghcr.io/camstack/camstack:amd-latest|${IMAGE_TAG}|g" "$COMPOSE_SRC" > "$COMPOSE_TMP"
+# Uncomment the device lines for what was passed into the CT; the rest stay
+# commented for the operator to enable later.
+if [ "${#ENABLED_MARKERS[@]}" -gt 0 ]; then
+  for marker in devices "${ENABLED_MARKERS[@]}"; do
+    sed -i -E "s|^( *)# (.*#@${marker})$|\\1\\2|" "$COMPOSE_TMP"
+  done
+fi
+for node in ${APEX_EXTRA[@]+"${APEX_EXTRA[@]}"}; do
+  # Units past the two template lines: add them under the last apex entry.
+  awk -v line="      - ${node}:${node}" '{ print } /#@apex_1$/ { print line }' \
+    "$COMPOSE_TMP" > "${COMPOSE_TMP}.new" && mv "${COMPOSE_TMP}.new" "$COMPOSE_TMP"
+done
 # Inject agent env defaults into a .env next to compose
 ENV_TMP=$(mktemp)
 {

@@ -61,7 +61,10 @@ from disk).
 | `RECORDINGS_HOST_PATH` | — | optional host dir bound now at `/opt/camstack/recordings` |
 | `CAMSTACK_HUB_ADDRESS` | — | agent: hub IP/hostname |
 | `CAMSTACK_NODE_ID` | CT hostname | agent: stable node id |
+| `PASS_ACCEL` | `auto` | `auto` passes every accelerator the host has (see below); `none` passes nothing |
+| `PASS_KFD` | `0` | `1` also passes `/dev/kfd` (AMD ROCm; the image has no ROCm runtime today) |
 | `--force` | — | destroy existing VMID and recreate |
+| `--install-coral-pcie-driver` | — | opt-in host step: build the Coral PCIe/M.2 driver, then exit (see below) |
 
 ## Recordings on a real HD (do this when the disk arrives)
 
@@ -111,23 +114,88 @@ RECORDINGS_HOST_PATH=/mnt/recordings-hd/camstack-hub \
   bash install-camstack-proxmox.sh
 ```
 
-### What you do **not** need for GPU / NPU
-
-`/dev/dri` and `/dev/accel` are passed with `pct set -devN …,gid=…` by the
-install script. No bind-mount or chmod script — device nodes are not a disk
-tree. (ROCm `/dev/kfd` / XRT are out of scope for this image.)
-
 ### Later: backups on a second disk
 
 Same pattern as recordings: host dir → `pct set -mpN …,mp=/opt/camstack/backups`
 (compose already maps that path to `/backups`). A dedicated helper can be added
 when needed; until then, mirror the recordings script with `CT_MP=/opt/camstack/backups`.
 
+## Accelerators (GPU, NPU, Coral)
+
+Two hops: the driver runs on the **PVE host**, the device node goes into the
+**CT** as a `devN:` entry, and the compose inside the CT passes it on to the
+**Docker container**. Full guide:
+[Accelerator passthrough](https://camstack.io/docs/installation/accelerators).
+
+With `PASS_ACCEL=auto` (the default) the installer passes what the host has,
+and uncomments the matching lines in `/opt/camstack/docker-compose.yml`:
+
+| Device | Detected by | Into the CT |
+| --- | --- | --- |
+| Intel / AMD iGPU | `/dev/dri/renderD*`, `/dev/dri/card*` | `devN: …,gid=<render/video>,mode=0660` |
+| Intel NPU / AMD XDNA | `/dev/accel/accel*` | `devN: …,gid=<render>,mode=0660` |
+| Coral PCIe / M.2 | `/dev/apex_*` (needs the host driver) | `devN: /dev/apex_N,gid=<render>,mode=0660` |
+| Coral USB | USB id `1a6e:089a` / `18d1:9302` | `lxc.cgroup2.devices.allow: c 189:* rwm` + bind of `/dev/bus/usb` |
+| AMD ROCm | only with `PASS_KFD=1` | `devN: /dev/kfd,…` |
+| NVIDIA | never automatic | host driver, the same driver in the CT, NVIDIA Container Toolkit, then `gpus: all` |
+
+Every device line in the compose is commented per hardware; Docker refuses to
+start with a device the CT does not have, so uncomment only what you passed.
+No `group_add` is needed: the image entrypoint makes each passed node openable
+by the `camstack` user (and drops supplementary groups, so `group_add` would
+not reach it anyway). A Coral USB in an unprivileged CT also needs a host udev
+rule making it `0666`; the installer prints it.
+
+Adding a device to an existing CT by hand (keep the lines you have):
+
+```bash
+CT=201
+pct set $CT -dev0 /dev/dri/renderD128,gid=993,mode=0660   # AMD/Intel iGPU
+pct set $CT -dev1 /dev/accel/accel0,gid=993,mode=0660     # Intel NPU / AMD XDNA
+pct set $CT -dev2 /dev/kfd,gid=993,mode=0660              # AMD ROCm (optional)
+pct set $CT -dev3 /dev/apex_0,gid=993,mode=0660           # Coral PCIe unit 1
+pct set $CT -dev4 /dev/apex_1,gid=993,mode=0660           # Coral PCIe unit 2
+pct reboot $CT
+# then uncomment the same nodes under devices: in /opt/camstack/docker-compose.yml
+```
+
+### Coral PCIe / M.2 host driver (opt-in)
+
+Current kernels have no in-tree `gasket`/`apex` driver. This builds the
+maintained fork ([feranick/gasket-driver](https://github.com/feranick/gasket-driver))
+through DKMS, installs `proxmox-headers-$(uname -r)` (adding the
+`pve-no-subscription` repository only when the headers are not otherwise
+available), creates the `apex` group and the udev rule
+`SUBSYSTEM=="apex", MODE="0660", GROUP="apex"`. It never runs as part of an
+install and never reboots for you:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/camstack/proxmox/main/install-camstack-proxmox.sh \
+  | bash -s -- --install-coral-pcie-driver
+reboot                  # load on a clean boot
+ls -l /dev/apex_*       # expect crw-rw---- root apex
+```
+
+With Secure Boot on, enrol the DKMS key first (`mokutil --import
+/var/lib/dkms/mok.pub`, accept it in the MOK screen); the helper warns when it
+sees Secure Boot enabled. Then install the Coral runtime inside the container
+and enable the device per node, as in the guide.
+
+### No custom entrypoint
+
+The installer does not mount a `docker-entrypoint.sh`; the image's own handles
+`/dev/dri`, `/dev/accel`, `/dev/apex_*` and Coral USB. If an older CT's compose
+mounts a host copy (`/opt/camstack/docker-entrypoint.sh:/usr/local/bin/docker-entrypoint.sh`),
+remove that mount once the image is newer than v1.2.583: a mounted copy hides
+every later entrypoint fix, and one without `/dev/apex_*` in its device `chown`
+loop leaves a PCIe Coral `device-not-accessible`.
+
 ## Requirements
 
 - Proxmox VE 9.x (kernel with `amdgpu`; `amdxdna` optional)
 - Nested Docker needs `features: nesting=1,keyctl=1` (set by the script)
-- Pass-through of `/dev/dri/renderD*` (and `/dev/accel` when present)
+- Pass-through of `/dev/dri/renderD*` (and `/dev/accel`, `/dev/apex_*` when
+  present; done by the script)
 - For production media: a host disk bind (see above)
 
 ## Licence

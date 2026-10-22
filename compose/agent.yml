@@ -7,12 +7,31 @@ services:
     restart: unless-stopped
     network_mode: host
     pids_limit: 8192
-    devices:
-      - /dev/dri:/dev/dri
-      - /dev/accel:/dev/accel
-    # Host GIDs so camstack can open renderD* (VAAPI/WebGPU) and accel0.
-    # video=44 and render=993 are the usual Ubuntu/PVE values; confirm with
-    # `stat -c %g /dev/dri/renderD128` / `stat -c %g /dev/accel/accel0`.
+    # Accelerators: uncomment what this CT has. The installer uncomments the
+    # lines (marked #@…) for the devices it passed into the CT as `devN:`
+    # entries. Docker refuses to start with a device the CT does not have.
+    # devices:                                    #@devices
+      # Intel / AMD iGPU: VAAPI/QSV decode, OpenVINO GPU, ONNX WebGPU
+      # - /dev/dri:/dev/dri                       #@dri
+      # Intel NPU (Core Ultra, OpenVINO NPU) / AMD XDNA NPU (detected only)
+      # - /dev/accel:/dev/accel                   #@accel
+      # AMD ROCm compute (optional; the image carries no ROCm runtime today)
+      # - /dev/kfd:/dev/kfd                       #@kfd
+      # Coral USB: the whole bus, the stick re-enumerates after firmware load
+      # - /dev/bus/usb:/dev/bus/usb               #@usb
+      # Coral PCIe / M.2: one line per unit; needs the host gasket/apex driver
+      # - /dev/apex_0:/dev/apex_0                 #@apex_0
+      # - /dev/apex_1:/dev/apex_1                 #@apex_1
+    # device_cgroup_rules:                        #@usb
+      # Coral USB: any USB minor (major 189), so a re-enumerated stick opens
+      # - 'c 189:* rmw'                           #@usb
+    # NVIDIA (CUDA): needs the NVIDIA driver in the CT (same version as the
+    # host) and the NVIDIA Container Toolkit; the installer never enables it.
+    # gpus: all
+    # No group_add is needed for any device above: the image entrypoint chowns
+    # every passed /dev/dri, /dev/accel and /dev/apex_* node to `camstack` and
+    # opens Coral USB nodes, then drops supplementary groups (gosu), so these
+    # GIDs (video=44, render=993) reach only the root entrypoint shell.
     group_add:
       - "44"
       - "993"
