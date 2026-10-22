@@ -144,7 +144,11 @@ start with a device the CT does not have, so uncomment only what you passed.
 No `group_add` is needed: the image entrypoint makes each passed node openable
 by the `camstack` user (and drops supplementary groups, so `group_add` would
 not reach it anyway). A Coral USB in an unprivileged CT also needs a host udev
-rule making it `0666`; the installer prints it.
+rule making it `0666` for both of its ids (`1a6e:089a` before the firmware
+loads, `18d1:9302` after); the installer writes
+`/etc/udev/rules.d/65-coral-usb.rules` and reloads udev when it finds a Coral
+USB. Verified 2026-10-22 on an AMD Phoenix host: the stick re-enumerates with a
+new device number on its first invoke and the bind of `/dev/bus/usb` follows it.
 
 Adding a device to an existing CT by hand (keep the lines you have):
 

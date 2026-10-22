@@ -277,12 +277,18 @@ if [ "$PASS_ACCEL" = "auto" ]; then
       || echo 'lxc.mount.entry: /dev/bus/usb dev/bus/usb none bind,optional,create=dir' >> "$conf"
     echo "  Coral USB → /dev/bus/usb (cgroup c 189:* rwm + bind mount)"
     enable_marker usb
+    # In an unprivileged CT the USB nodes stay host-root owned (nobody:nogroup
+    # inside), so the Coral must be world-writable on the HOST — both ids,
+    # because the stick re-enumerates as 18d1:9302 on its first invoke.
     if [ ! -f /etc/udev/rules.d/65-coral-usb.rules ]; then
-      echo "  In an unprivileged CT the USB nodes stay host-root owned; make the Coral"
-      echo "  writable on the HOST once, in /etc/udev/rules.d/65-coral-usb.rules:"
-      echo '    SUBSYSTEMS=="usb", ATTRS{idVendor}=="1a6e", ATTRS{idProduct}=="089a", MODE="0666"'
-      echo '    SUBSYSTEMS=="usb", ATTRS{idVendor}=="18d1", ATTRS{idProduct}=="9302", MODE="0666"'
-      echo "  then: udevadm control --reload-rules, and replug the Coral."
+      cat > /etc/udev/rules.d/65-coral-usb.rules <<'RULES'
+# Coral USB Edge TPU: before (1a6e:089a) and after (18d1:9302) the firmware load.
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="1a6e", ATTRS{idProduct}=="089a", MODE="0666"
+SUBSYSTEMS=="usb", ATTRS{idVendor}=="18d1", ATTRS{idProduct}=="9302", MODE="0666"
+RULES
+      udevadm control --reload-rules
+      udevadm trigger --subsystem-match=usb
+      echo "  Coral USB → host udev rule /etc/udev/rules.d/65-coral-usb.rules (0666)"
     fi
   fi
   if [ -e /dev/nvidia0 ]; then
