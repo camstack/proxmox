@@ -337,6 +337,15 @@ mkdir -p /opt/camstack/{data,config,backups,recordings}
 # so first boot can write even before the image entrypoint fix ships.
 mkdir -p /opt/camstack/data/addons/@camstack
 chown -R 1001:1001 /opt/camstack/data /opt/camstack/config /opt/camstack/backups
+# EVERY dir the compose binds must be writable by uid 1001, recordings too: a
+# fresh dev hub (2026-10-23) got /recordings root:root 0755 and EACCES on
+# /recordings/artifacts. An mp0 host bind mounted here is chowned host-side
+# below (its uid is remapped); a rootfs dir is chowned here.
+if mountpoint -q /opt/camstack/recordings; then
+  echo "/opt/camstack/recordings is a host bind — ownership set on the host"
+else
+  chown -R 1001:1001 /opt/camstack/recordings
+fi
 INNER
 
 # Align host-side ownership for an mp0 recordings bind (uid 1001 → 100000+1001).
