@@ -132,12 +132,14 @@ and uncomments the matching lines in `/opt/camstack/docker-compose.yml`:
 
 | Device | Detected by | Into the CT |
 | --- | --- | --- |
-| Intel / AMD iGPU | `/dev/dri/renderD*`, `/dev/dri/card*` | `devN: …,gid=<render/video>,mode=0660` |
+| Intel / AMD iGPU | `/dev/dri/renderD*`, the card by PCI path `/dev/dri/by-path/pci-…-card` | `devN: …,gid=<render/video>,mode=0660` |
 | Intel NPU / AMD XDNA | `/dev/accel/accel*` | `devN: …,gid=<render>,mode=0660` |
 | Coral PCIe / M.2 | `/dev/apex_*` (needs the host driver) | `devN: /dev/apex_N,gid=<render>,mode=0660` |
 | Coral USB | USB id `1a6e:089a` / `18d1:9302` | `lxc.cgroup2.devices.allow: c 189:* rwm` + bind of `/dev/bus/usb` |
 | AMD ROCm | only with `PASS_KFD=1` | `devN: /dev/kfd,…` |
 | NVIDIA | never automatic | host driver, the same driver in the CT, NVIDIA Container Toolkit, then `gpus: all` |
+
+The card is passed by its PCI path because `/dev/dri/cardN` follows probe order and can change between boots (with or without a boot framebuffer the same iGPU is `card0` or `card1`); a CT whose `devN` names a node that is gone does not start (`Device /dev/dri/card1 does not exist`). Re-running the install rewrites an existing `/dev/dri/cardN` entry to the PCI path. `renderD*` keeps its name, because CamStack opens `/dev/dri/renderD128` by name.
 
 Every device line in the compose is commented per hardware; Docker refuses to
 start with a device the CT does not have, so uncomment only what you passed.

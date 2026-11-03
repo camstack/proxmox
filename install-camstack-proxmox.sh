@@ -217,13 +217,58 @@ coral_usb_present() {
   return 1
 }
 
+# A /dev/dri/cardN number follows probe order and moves between boots (a boot
+# framebuffer present or not shifts the iGPU from card1 to card0), and a CT whose
+# devN names a node that is gone does not start. A card is therefore passed by its
+# PCI path, which never moves. renderD* keeps its name: consumers open
+# /dev/dri/renderD128 by that name.
+stable_dri_path() {
+  local path=$1 link
+  if [[ "$path" == /dev/dri/card* ]]; then
+    for link in /dev/dri/by-path/*-card; do
+      [ -e "$link" ] || continue
+      if [ "$(readlink -f "$link")" = "$(readlink -f "$path")" ]; then
+        echo "$link"
+        return 0
+      fi
+    done
+  fi
+  echo "$path"
+}
+
+# A devN left by an earlier install that names /dev/dri/cardN is rewritten to
+# the card's PCI path, keeping its gid and mode: the node it names now, or the
+# host's card when that number is already gone (the CT then refuses to start,
+# "Device … does not exist").
+repair_stale_dri() {
+  local line key value path opts link
+  while IFS= read -r line; do
+    key=${line%%:*}
+    value=${line#*: }
+    path=${value%%,*}
+    opts=${value#"$path"}
+    if [ -e "$path" ]; then
+      link=$(stable_dri_path "$path")
+    else
+      link=$(compgen -G '/dev/dri/by-path/*-card' | head -n1 || true)
+    fi
+    if [ -z "$link" ] || [ "$link" = "$path" ]; then
+      [ -e "$path" ] || echo "  ${key} → ${path} is gone and no GPU card is present: remove it with 'pct set $VMID -delete ${key}'"
+      continue
+    fi
+    pct set "$VMID" -"${key}" "${link}${opts}"
+    echo "  ${key}: ${path} → ${link}"
+  done < <(pct config "$VMID" | grep -E '^dev[0-9]+: /dev/dri/card')
+}
+
 # gid = the group INSIDE the CT that owns the node; the image entrypoint then
 # chowns it to `camstack` in the Docker container.
 pass_dev() {
   local path=$1 mode=$2 marker=$3
   [ -e "$path" ] || return 0
+  path=$(stable_dri_path "$path")
   local gid
-  if [[ "$path" == /dev/dri/card* ]]; then
+  if [[ "$path" == /dev/dri/card* || "$path" == /dev/dri/by-path/*-card ]]; then
     gid=$(pct exec "$VMID" -- getent group video | cut -d: -f3 || true)
     gid=${gid:-44}
   else
@@ -244,6 +289,7 @@ pass_dev() {
 
 if [ "$PASS_ACCEL" = "auto" ]; then
   echo "Passing through accelerator devices found on the host…"
+  repair_stale_dri
   for node in /dev/dri/renderD* /dev/dri/card*; do
     pass_dev "$node" 0660 dri
   done
