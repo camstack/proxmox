@@ -50,6 +50,10 @@ IMAGE_TAG="${IMAGE_TAG:-ghcr.io/camstack/camstack:amd-latest}"
 # in the CT (same path Docker maps to CAMSTACK_MEDIA_ROOT). Prefer attaching
 # a real HD later with setup-camstack-recordings-volume.sh if unknown now.
 RECORDINGS_HOST_PATH="${RECORDINGS_HOST_PATH:-}"
+# Optional: host directory for backup archives, bound at /opt/camstack/backups
+# in the CT (the path Docker maps to /backups = CAMSTACK_BACKUP_ROOT). Unset
+# keeps the archives on the CT rootfs.
+BACKUPS_HOST_PATH="${BACKUPS_HOST_PATH:-}"
 FORCE="${FORCE:-}"
 # auto = pass every accelerator node the host has; none = pass nothing.
 PASS_ACCEL="${PASS_ACCEL:-auto}"
@@ -180,6 +184,11 @@ if [ -n "$RECORDINGS_HOST_PATH" ]; then
   # Ownership fixed after create (idmap known); mount path matches compose.
   CREATE_ARGS+=(--mp0 "${RECORDINGS_HOST_PATH},mp=/opt/camstack/recordings")
   echo "Recordings host path: $RECORDINGS_HOST_PATH → /opt/camstack/recordings"
+fi
+if [ -n "$BACKUPS_HOST_PATH" ]; then
+  mkdir -p "$BACKUPS_HOST_PATH"
+  CREATE_ARGS+=(--mp1 "${BACKUPS_HOST_PATH},mp=/opt/camstack/backups")
+  echo "Backups host path: $BACKUPS_HOST_PATH → /opt/camstack/backups"
 fi
 
 echo "Creating CT $VMID on $STORAGE…"
@@ -382,20 +391,23 @@ mkdir -p /opt/camstack/{data,config,backups,recordings}
 # AMD agent, 2026-10-10). Pre-create the scope as uid 1001 (image `camstack`)
 # so first boot can write even before the image entrypoint fix ships.
 mkdir -p /opt/camstack/data/addons/@camstack
-chown -R 1001:1001 /opt/camstack/data /opt/camstack/config /opt/camstack/backups
+chown -R 1001:1001 /opt/camstack/data /opt/camstack/config
 # EVERY dir the compose binds must be writable by uid 1001, recordings too: a
 # fresh dev hub (2026-10-23) got /recordings root:root 0755 and EACCES on
 # /recordings/artifacts. An mp0 host bind mounted here is chowned host-side
 # below (its uid is remapped); a rootfs dir is chowned here.
-if mountpoint -q /opt/camstack/recordings; then
-  echo "/opt/camstack/recordings is a host bind — ownership set on the host"
-else
-  chown -R 1001:1001 /opt/camstack/recordings
-fi
+for media_dir in /opt/camstack/recordings /opt/camstack/backups; do
+  if mountpoint -q "$media_dir"; then
+    echo "$media_dir is a host bind — ownership set on the host"
+  else
+    chown -R 1001:1001 "$media_dir"
+  fi
+done
 INNER
 
-# Align host-side ownership for an mp0 recordings bind (uid 1001 → 100000+1001).
-if [ -n "$RECORDINGS_HOST_PATH" ]; then
+# Align host-side ownership for the mp0 recordings / mp1 backups binds
+# (uid 1001 → 100000+1001, or through the CT's own idmap).
+if [ -n "$RECORDINGS_HOST_PATH" ] || [ -n "$BACKUPS_HOST_PATH" ]; then
   HOST_UID=$((100000 + 1001))
   if [ -f "/etc/pve/lxc/${VMID}.conf" ]; then
     line=$(grep -E '^lxc\.idmap:\s*u\s+' "/etc/pve/lxc/${VMID}.conf" | head -1 || true)
@@ -405,10 +417,17 @@ if [ -n "$RECORDINGS_HOST_PATH" ]; then
       HOST_UID=$((map_host + 1001 - map_from))
     fi
   fi
+fi
+if [ -n "$RECORDINGS_HOST_PATH" ]; then
   mkdir -p "$RECORDINGS_HOST_PATH/.camstack-media"
   chown -R "$HOST_UID:$HOST_UID" "$RECORDINGS_HOST_PATH"
   chmod 0750 "$RECORDINGS_HOST_PATH"
   echo "Recordings host dir owned by uid $HOST_UID (CT camstack)"
+fi
+if [ -n "$BACKUPS_HOST_PATH" ]; then
+  chown -R "$HOST_UID:$HOST_UID" "$BACKUPS_HOST_PATH"
+  chmod 0750 "$BACKUPS_HOST_PATH"
+  echo "Backups host dir owned by uid $HOST_UID (CT camstack)"
 fi
 
 # Compose file into the CT
@@ -462,4 +481,9 @@ if [ -z "$RECORDINGS_HOST_PATH" ]; then
   echo "  curl -fsSL https://raw.githubusercontent.com/camstack/proxmox/main/setup-camstack-recordings-volume.sh \\"
   echo "    | VMID=$VMID bash -s -- /mnt/<your-hd>/camstack-$ROLE"
   echo "  # or:  … bash -s -- --storage <pve-directory-storage-id>"
+fi
+if [ -z "$BACKUPS_HOST_PATH" ]; then
+  echo ""
+  echo "Backup archives are on the CT rootfs (/opt/camstack/backups). To keep them on"
+  echo "another disk, reinstall with BACKUPS_HOST_PATH=/mnt/<disk>/camstack-backups."
 fi

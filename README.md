@@ -59,6 +59,7 @@ from disk).
 | `STORAGE` | auto `local-lvm` or `local-zfs` | rootfs storage |
 | `IMAGE_TAG` | `ghcr.io/camstack/camstack:amd-latest` | override image |
 | `RECORDINGS_HOST_PATH` | — | optional host dir bound now at `/opt/camstack/recordings` |
+| `BACKUPS_HOST_PATH` | — | optional host dir bound now at `/opt/camstack/backups` (Docker `/backups`) |
 | `CAMSTACK_HUB_ADDRESS` | — | agent: hub IP/hostname |
 | `CAMSTACK_NODE_ID` | CT hostname | agent: stable node id |
 | `PASS_ACCEL` | `auto` | `auto` passes every accelerator the host has (see below); `none` passes nothing |
@@ -114,11 +115,19 @@ RECORDINGS_HOST_PATH=/mnt/recordings-hd/camstack-hub \
   bash install-camstack-proxmox.sh
 ```
 
-### Later: backups on a second disk
+### Backups on a second disk
 
-Same pattern as recordings: host dir → `pct set -mpN …,mp=/opt/camstack/backups`
-(compose already maps that path to `/backups`). A dedicated helper can be added
-when needed; until then, mirror the recordings script with `CT_MP=/opt/camstack/backups`.
+At first install, pass the host directory and the script binds it at
+`/opt/camstack/backups` (compose maps that path to `/backups`, the image's
+`CAMSTACK_BACKUP_ROOT`) and sets its ownership:
+
+```bash
+BACKUPS_HOST_PATH=/mnt/backup-hd/camstack-hub \
+  bash install-camstack-proxmox.sh
+```
+
+On an existing CT, bind it by hand: `pct set <vmid> -mp1 <host-dir>,mp=/opt/camstack/backups`,
+owned on the host by the CT's uid 1001 (`100000 + 1001` with the default idmap).
 
 ## Accelerators (GPU, NPU, Coral)
 
