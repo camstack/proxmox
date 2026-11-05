@@ -48,6 +48,8 @@ services:
       - CAMSTACK_MEDIA_ROOT=/recordings
       - CAMSTACK_MOLECULER_USE_HOSTNAME=false
       - CAMSTACK_LOG_LEVEL=info
+      # The node's default time zone (IANA). The install script fills it from the Proxmox host.
+      - TZ=${TZ:-UTC}
     logging:
       driver: json-file
       options:

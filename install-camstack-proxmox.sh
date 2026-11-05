@@ -452,6 +452,7 @@ ENV_TMP=$(mktemp)
   echo "CAMSTACK_HUB_URL=${CAMSTACK_HUB_URL:-}"
   echo "CAMSTACK_NODE_ID=${CAMSTACK_NODE_ID:-$HOSTNAME}"
   echo "CAMSTACK_AGENT_NAME=${CAMSTACK_AGENT_NAME:-}"
+  echo "TZ=${TZ:-$(timedatectl show -p Timezone --value 2>/dev/null || cat /etc/timezone 2>/dev/null || echo UTC)}"
 } > "$ENV_TMP"
 pct push "$VMID" "$COMPOSE_TMP" /opt/camstack/docker-compose.yml
 pct push "$VMID" "$ENV_TMP" /opt/camstack/.env
