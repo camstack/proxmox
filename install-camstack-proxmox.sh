@@ -384,14 +384,14 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 apt-get update -qq
 apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-compose-plugin
 systemctl enable --now docker
-mkdir -p /opt/camstack/{data,config,backups,recordings}
+mkdir -p /opt/camstack/{data,backups,recordings}
 # The image entrypoint does `mkdir -p /data/addons/@camstack` as root and only
 # non-recursively chowns `/data/addons`. That left `@camstack` root-owned so
 # the camstack user could not seed AGENT_PACKAGES (empty pipeline on a fresh
 # AMD agent, 2026-10-10). Pre-create the scope as uid 1001 (image `camstack`)
 # so first boot can write even before the image entrypoint fix ships.
 mkdir -p /opt/camstack/data/addons/@camstack
-chown -R 1001:1001 /opt/camstack/data /opt/camstack/config
+chown -R 1001:1001 /opt/camstack/data
 # EVERY dir the compose binds must be writable by uid 1001, recordings too: a
 # fresh dev hub (2026-10-23) got /recordings root:root 0755 and EACCES on
 # /recordings/artifacts. An mp0 host bind mounted here is chowned host-side

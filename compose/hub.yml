@@ -38,7 +38,6 @@ services:
       - "1001"
     volumes:
       - /opt/camstack/data:/data
-      - /opt/camstack/config:/config
       - /opt/camstack/backups:/backups
       # Prefer a host HD bind-mounted at this CT path (see
       # setup-camstack-recordings-volume.sh). Rootfs is fine only for smoke tests.

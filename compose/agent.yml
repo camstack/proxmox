@@ -38,7 +38,6 @@ services:
       - "1001"
     volumes:
       - /opt/camstack/data:/data
-      - /opt/camstack/config:/config
       - /opt/camstack/backups:/backups
       - /opt/camstack/recordings:/recordings
     environment:
