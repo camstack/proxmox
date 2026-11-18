@@ -40,18 +40,38 @@ services:
       - /opt/camstack/data:/data
       - /opt/camstack/backups:/backups
       - /opt/camstack/recordings:/recordings
+      # Optional: a second disk for media, added later as a storage location
+      # from the admin UI (Storage). Mount it at any free container path, e.g.
+      # - /mnt/fast-ssd/camstack:/media-fast
     environment:
+      # hub | agent. One image serves both roles; this picks which at boot.
       - CAMSTACK_ROLE=agent
+      # Container path every recording and event file is written under. Must
+      # match the recordings volume below, or media lands in /data.
       - CAMSTACK_MEDIA_ROOT=/recordings
+      # true | false. Keep false: nodes then advertise their IP instead of a
+      # container hostname the other machines cannot resolve, so a
+      # multi-machine cluster forms. true only for a single-host test setup.
       - CAMSTACK_MOLECULER_USE_HOSTNAME=false
+      # trace | debug | info | warn | error. Forked addon runners inherit it.
       - CAMSTACK_LOG_LEVEL=info
-      # The node's default time zone (IANA). The install script fills it from the Proxmox host.
+      # The node's default time zone (IANA, e.g. Europe/Rome). Unset or empty
+      # means UTC. The install script fills it from the Proxmox host.
       - TZ=${TZ:-UTC}
-      # Set by the install script when provided:
+      # Set by the install script when provided. All may stay blank: the agent
+      # is then found on the network and paired from the hub (Cluster → Nodes).
+      # IP or hostname of the hub to join.
       - CAMSTACK_HUB_ADDRESS=${CAMSTACK_HUB_ADDRESS:-}
+      # Full hub URL (e.g. https://10.0.0.5:4443), only for a non-default port
+      # or a proxy; blank derives it from CAMSTACK_HUB_ADDRESS.
       - CAMSTACK_HUB_URL=${CAMSTACK_HUB_URL:-}
+      # Stable, unique id of this agent (e.g. gpu-box). Never change it once
+      # the hub knows it. Blank = the container hostname.
       - CAMSTACK_NODE_ID=${CAMSTACK_NODE_ID:-}
+      # Label in the topology view. Blank = the node id.
       - CAMSTACK_AGENT_NAME=${CAMSTACK_AGENT_NAME:-}
+      # Optional (default shown): port of the agent status page and API.
+      # - CAMSTACK_STATUS_PORT=4444
     logging:
       driver: json-file
       options:
