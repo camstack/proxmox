@@ -349,6 +349,7 @@ RULES
   if [ -e /dev/nvidia0 ]; then
     echo "  NVIDIA GPU found: not passed automatically (needs the driver in the CT and the"
     echo "  NVIDIA Container Toolkit); see 'gpus: all' in /opt/camstack/docker-compose.yml."
+    echo "  Use IMAGE_TAG=ghcr.io/camstack/camstack:nvidia-latest (nvidia-legacy-latest for GTX 10 / 9)."
   fi
 fi
 

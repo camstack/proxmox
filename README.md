@@ -146,7 +146,8 @@ and uncomments the matching lines in `/opt/camstack/docker-compose.yml`:
 | Coral PCIe / M.2 | `/dev/apex_*` (needs the host driver) | `devN: /dev/apex_N,gid=<render>,mode=0660` |
 | Coral USB | USB id `1a6e:089a` / `18d1:9302` | `lxc.cgroup2.devices.allow: c 189:* rwm` + bind of `/dev/bus/usb` |
 | AMD ROCm | only with `PASS_KFD=1` | `devN: /dev/kfd,…` |
-| NVIDIA | never automatic | host driver, the same driver in the CT, NVIDIA Container Toolkit, then `gpus: all` |
+| NVIDIA | never automatic | host driver, the same driver in the CT, NVIDIA Container Toolkit, then `gpus: all` and `IMAGE_TAG=ghcr.io/camstack/camstack:nvidia-latest` (`nvidia-legacy-latest` for GTX 10 / 9) |
+| Older Intel iGPU (Gen8-Gen11) | as Intel iGPU | install with `IMAGE_TAG=ghcr.io/camstack/camstack:intel-legacy-latest` |
 
 The card is passed by its PCI path because `/dev/dri/cardN` follows probe order and can change between boots (with or without a boot framebuffer the same iGPU is `card0` or `card1`); a CT whose `devN` names a node that is gone does not start (`Device /dev/dri/card1 does not exist`). Re-running the install rewrites an existing `/dev/dri/cardN` entry to the PCI path. `renderD*` keeps its name, because CamStack opens `/dev/dri/renderD128` by name.
 

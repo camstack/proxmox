@@ -27,6 +27,8 @@ services:
       # - 'c 189:* rmw'                           #@usb
     # NVIDIA (CUDA): needs the NVIDIA driver in the CT (same version as the
     # host) and the NVIDIA Container Toolkit; the installer never enables it.
+    # Also set image: to ghcr.io/camstack/camstack:nvidia-latest (RTX 20+ /
+    # GTX 16) or :nvidia-legacy-latest (GTX 10 / 9), or install with IMAGE_TAG.
     # gpus: all
     # No group_add is needed for any device above: the image entrypoint chowns
     # every passed /dev/dri, /dev/accel and /dev/apex_* node to `camstack` and
