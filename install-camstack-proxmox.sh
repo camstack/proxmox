@@ -10,7 +10,7 @@
 #
 # Accelerators present on the host are passed into the CT and enabled in the
 # generated compose: /dev/dri, /dev/accel, /dev/apex_* (Coral PCIe/M.2) and a
-# Coral USB. PASS_ACCEL=none skips all of it; PASS_KFD=1 adds /dev/kfd (ROCm).
+# Coral USB. PASS_ACCEL=none skips all of it.
 #
 # Opt-in, separate host step (never run by an install):
 #   bash install-camstack-proxmox.sh --install-coral-pcie-driver
@@ -20,7 +20,7 @@ set -euo pipefail
 PCT=$(command -v pct || true)
 if [ -z "$PCT" ]; then
   echo "pct not found. Run this on the Proxmox host."
-  echo "Docs: https://camstack.io/docs/installation/proxmox"
+  echo "Docs: https://camstack-docs.zentik.app/docs/installation/proxmox"
   exit 1
 fi
 
@@ -61,8 +61,6 @@ case "$PASS_ACCEL" in
   auto|none) ;;
   *) echo "PASS_ACCEL must be auto or none (got: $PASS_ACCEL)"; exit 1 ;;
 esac
-# /dev/kfd (AMD ROCm compute) only on request: the image has no ROCm runtime.
-PASS_KFD="${PASS_KFD:-0}"
 INSTALL_CORAL_PCIE_DRIVER=""
 for arg in "$@"; do
   case "$arg" in
@@ -305,9 +303,6 @@ if [ "$PASS_ACCEL" = "auto" ]; then
   for node in /dev/accel/accel*; do
     pass_dev "$node" 0660 accel
   done
-  if [ "$PASS_KFD" = "1" ]; then
-    pass_dev /dev/kfd 0660 kfd
-  fi
   for node in /dev/apex_*; do
     [ -e "$node" ] || continue
     unit=${node#/dev/apex_}

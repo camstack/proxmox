@@ -33,6 +33,9 @@ not announced and you reach it by address.
 
 ## Install (on the PVE host)
 
+The full setup path, from hardware check to first camera, is
+[Get started](https://camstack-docs.zentik.app/docs/get-started).
+
 ```bash
 # Hub (default VMID 200)
 curl -fsSL https://raw.githubusercontent.com/camstack/proxmox/main/install-camstack-proxmox.sh \
@@ -63,7 +66,6 @@ from disk).
 | `CAMSTACK_HUB_ADDRESS` | — | agent: hub IP/hostname |
 | `CAMSTACK_NODE_ID` | CT hostname | agent: stable node id |
 | `PASS_ACCEL` | `auto` | `auto` passes every accelerator the host has (see below); `none` passes nothing |
-| `PASS_KFD` | `0` | `1` also passes `/dev/kfd` (AMD ROCm; the image has no ROCm runtime today) |
 | `--force` | — | destroy existing VMID and recreate |
 | `--install-coral-pcie-driver` | — | opt-in host step: build the Coral PCIe/M.2 driver, then exit (see below) |
 
@@ -134,7 +136,11 @@ owned on the host by the CT's uid 1001 (`100000 + 1001` with the default idmap).
 Two hops: the driver runs on the **PVE host**, the device node goes into the
 **CT** as a `devN:` entry, and the compose inside the CT passes it on to the
 **Docker container**. Full guide:
-[Accelerator passthrough](https://camstack.io/docs/installation/accelerators).
+[Accelerator passthrough](https://camstack-docs.zentik.app/docs/installation/accelerators).
+
+Not sure what the host has? Run `npx camstack host-check` on it (Node 24+;
+read-only, nothing is sent): it lists the accelerators, NVIDIA cards included,
+and the `devN:` lines.
 
 With `PASS_ACCEL=auto` (the default) the installer passes what the host has,
 and uncomments the matching lines in `/opt/camstack/docker-compose.yml`:
@@ -145,7 +151,6 @@ and uncomments the matching lines in `/opt/camstack/docker-compose.yml`:
 | Intel NPU / AMD XDNA | `/dev/accel/accel*` | `devN: …,gid=<render>,mode=0660` |
 | Coral PCIe / M.2 | `/dev/apex_*` (needs the host driver) | `devN: /dev/apex_N,gid=<render>,mode=0660` |
 | Coral USB | USB id `1a6e:089a` / `18d1:9302` | `lxc.cgroup2.devices.allow: c 189:* rwm` + bind of `/dev/bus/usb` |
-| AMD ROCm | only with `PASS_KFD=1` | `devN: /dev/kfd,…` |
 | NVIDIA | never automatic | host driver, the same driver in the CT, NVIDIA Container Toolkit, then `gpus: all` and `IMAGE_TAG=ghcr.io/camstack/camstack:nvidia-latest` (`nvidia-legacy-latest` for GTX 10 / 9) |
 | Older Intel iGPU (Gen8-Gen11) | as Intel iGPU | install with `IMAGE_TAG=ghcr.io/camstack/camstack:intel-legacy-latest` |
 
@@ -168,9 +173,8 @@ Adding a device to an existing CT by hand (keep the lines you have):
 CT=201
 pct set $CT -dev0 /dev/dri/renderD128,gid=993,mode=0660   # AMD/Intel iGPU
 pct set $CT -dev1 /dev/accel/accel0,gid=993,mode=0660     # Intel NPU / AMD XDNA
-pct set $CT -dev2 /dev/kfd,gid=993,mode=0660              # AMD ROCm (optional)
-pct set $CT -dev3 /dev/apex_0,gid=993,mode=0660           # Coral PCIe unit 1
-pct set $CT -dev4 /dev/apex_1,gid=993,mode=0660           # Coral PCIe unit 2
+pct set $CT -dev2 /dev/apex_0,gid=993,mode=0660           # Coral PCIe unit 1
+pct set $CT -dev3 /dev/apex_1,gid=993,mode=0660           # Coral PCIe unit 2
 pct reboot $CT
 # then uncomment the same nodes under devices: in /opt/camstack/docker-compose.yml
 ```

@@ -15,8 +15,6 @@ services:
       # - /dev/dri:/dev/dri                       #@dri
       # Intel NPU (Core Ultra, OpenVINO NPU) / AMD XDNA NPU (detected only)
       # - /dev/accel:/dev/accel                   #@accel
-      # AMD ROCm compute (optional; the image carries no ROCm runtime today)
-      # - /dev/kfd:/dev/kfd                       #@kfd
       # Coral USB: the whole bus, the stick re-enumerates after firmware load
       # - /dev/bus/usb:/dev/bus/usb               #@usb
       # Coral PCIe / M.2: one line per unit; needs the host gasket/apex driver
@@ -32,12 +30,7 @@ services:
     # gpus: all
     # No group_add is needed for any device above: the image entrypoint chowns
     # every passed /dev/dri, /dev/accel and /dev/apex_* node to `camstack` and
-    # opens Coral USB nodes, then drops supplementary groups (gosu), so these
-    # GIDs (video=44, render=993) reach only the root entrypoint shell.
-    group_add:
-      - "44"
-      - "993"
-      - "1001"
+    # opens Coral USB nodes, then drops supplementary groups (gosu).
     volumes:
       - /opt/camstack/data:/data
       - /opt/camstack/backups:/backups
