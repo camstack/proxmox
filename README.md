@@ -31,6 +31,20 @@ them in any firewall. Do not forward `6443` to the internet. mDNS needs the CT
 on a bridge that shares a LAN with your clients; without it the hub is simply
 not announced and you reach it by address.
 
+**Matter over Thread (hub).** A Thread border router (an Aqara hub, a HomePod, a
+Nest hub) advertises the route to its mesh prefix in an IPv6 router
+advertisement. Linux ignores that route by default, so a shared Thread lock or
+sensor is commissioned and then never answers. The hub uses host networking
+inside the CT, so set it on the CT itself (not in compose):
+
+```bash
+# inside the hub CT; eth0 is the CT's LAN interface
+echo 'net.ipv6.conf.eth0.accept_ra_rt_info_max_plen = 64' > /etc/sysctl.d/90-matter-thread.conf
+sysctl --system
+```
+
+It is harmless without Thread and needs IPv6 on the CT's bridge.
+
 ## Install (on the PVE host)
 
 The full setup path, from hardware check to first camera, is
